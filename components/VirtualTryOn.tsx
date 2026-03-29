@@ -279,7 +279,7 @@ const VirtualTryOn: React.FC<VirtualTryOnProps> = ({ user, onBack, onUpgradeRequ
           });
 
       } catch (err) {
-          setError(getFriendlyErrorMessage(err as any, "Retry failed"));
+          setError(getFriendlyErrorMessage(err, "Retry failed"));
       } finally {
           setIsLoading(false);
       }
@@ -363,7 +363,7 @@ const VirtualTryOn: React.FC<VirtualTryOnProps> = ({ user, onBack, onUpgradeRequ
       return;
     }
 
-    const baseImageForPoseChange = Object.values(currentLayer.poseImages)[0];
+    const baseImageForPoseChange = Object.values(currentLayer.poseImages)[0] as string;
     if (!baseImageForPoseChange) return;
 
     setError(null);

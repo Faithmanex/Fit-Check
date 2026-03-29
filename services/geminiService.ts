@@ -55,7 +55,7 @@ const handleApiResponse = (response: GenerateContentResponse): string => {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
-const REASONING_MODEL = 'gemini-3-pro-image-preview'; // Used for Search
+const REASONING_MODEL = 'gemini-3.1-pro-preview'; // Used for Search
 
 const safetySettings = [
     { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
