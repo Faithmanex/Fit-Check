@@ -53,7 +53,11 @@ const handleApiResponse = (response: GenerateContentResponse): string => {
     throw new Error("No image returned from AI");
 };
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+
+// Initialize with a dummy key if none is provided, or initialize lazily
+const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || 'DUMMY_KEY_TO_PREVENT_CRASH_ON_LOAD';
+const ai = new GoogleGenAI({ apiKey });
+
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
 const REASONING_MODEL = 'gemini-3.1-pro-preview'; // Used for Search
 
