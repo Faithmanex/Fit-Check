@@ -13,6 +13,7 @@ import AuthModal from './components/AuthModal';
 import Dashboard from './components/Dashboard';
 import VirtualTryOn from './components/VirtualTryOn';
 import { CheckCircleIcon, XIcon } from './components/icons';
+import { PayPalButtons } from '@paypal/react-paypal-js';
 
 type ViewState = 'landing' | 'dashboard' | 'app';
 
@@ -65,6 +66,17 @@ const App: React.FC = () => {
       setCurrentView('app');
   };
 
+
+  const handleApprove = async (data: any, actions: any) => {
+    await handleUpgrade();
+  };
+
+  const handleCreateSubscription = (data: any, actions: any) => {
+      return actions.subscription.create({
+          plan_id: import.meta.env.VITE_PAYPAL_PLAN_ID || 'P-XXXXXXXXXXXXXXXXXXXXXXXX'
+      });
+  };
+
   const handleUpgrade = async () => {
       setIsProcessingPayment(true);
       try {
@@ -80,24 +92,7 @@ const App: React.FC = () => {
       }
   };
 
-  // Paypal Button Mock
-  const PayPalButton = () => (
-      <button 
-        onClick={handleUpgrade}
-        disabled={isProcessingPayment}
-        className="w-full bg-[#0070BA] hover:bg-[#003087] text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
-      >
-        {isProcessingPayment ? (
-            <span>Processing...</span>
-        ) : (
-            <>
-                <span className="italic font-serif">Pay</span>
-                <span className="font-bold">Pal</span>
-                <span className="ml-2 bg-white/20 px-2 py-0.5 rounded text-sm">$4.99</span>
-            </>
-        )}
-      </button>
-  );
+
 
   return (
     <>
@@ -169,10 +164,14 @@ const App: React.FC = () => {
                                 
                                 <div className="border-t pt-6">
                                     <p className="text-xs text-gray-500 mb-3 text-center">Secure checkout with PayPal</p>
-                                    <PayPalButton />
-                                    <p className="text-[10px] text-gray-400 mt-4 text-center">
-                                        This is a simulated transaction for the MVP. No real money will be charged.
-                                    </p>
+
+                                    <PayPalButtons
+                                        createSubscription={handleCreateSubscription}
+                                        onApprove={handleApprove}
+                                        style={{ layout: "vertical", shape: "rect", color: "blue" }}
+                                    />
+
+
                                 </div>
                           </div>
                       </motion.div>
