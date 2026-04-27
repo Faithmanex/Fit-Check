@@ -13,6 +13,7 @@ import AuthModal from './components/AuthModal';
 import Dashboard from './components/Dashboard';
 import VirtualTryOn from './components/VirtualTryOn';
 import { CheckCircleIcon, XIcon } from './components/icons';
+import Spinner from './components/Spinner';
 import { PayPalButtons } from '@paypal/react-paypal-js';
 
 type ViewState = 'landing' | 'dashboard' | 'app';
@@ -143,7 +144,7 @@ const App: React.FC = () => {
                   >
                       <motion.div 
                         initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-                        className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+                        className="bg-white rounded-2xl w-full max-w-md overflow-y-auto max-h-[90vh] shadow-2xl"
                       >
                           <div className="p-6 bg-gray-900 text-white flex justify-between items-center">
                               <h3 className="text-xl font-serif font-bold">Upgrade to Pro</h3>
@@ -165,11 +166,25 @@ const App: React.FC = () => {
                                 <div className="border-t pt-6">
                                     <p className="text-xs text-gray-500 mb-3 text-center">Secure checkout with PayPal</p>
 
-                                    <PayPalButtons
-                                        createSubscription={handleCreateSubscription}
-                                        onApprove={handleApprove}
-                                        style={{ layout: "vertical", shape: "rect", color: "blue" }}
-                                    />
+
+                                    {isProcessingPayment ? (
+                                        <div className="flex flex-col items-center justify-center py-6">
+                                            <Spinner />
+                                            <p className="text-sm text-gray-500 mt-4">Processing payment...</p>
+                                        </div>
+                                    ) : (
+                                        <PayPalButtons
+                                            createSubscription={handleCreateSubscription}
+                                            onApprove={handleApprove}
+                                            onError={(err) => {
+                                                console.error("PayPal Checkout Error", err);
+                                                alert("An error occurred during checkout. Please try again.");
+                                                setIsProcessingPayment(false);
+                                            }}
+                                            style={{ layout: "vertical", shape: "rect", color: "blue" }}
+                                        />
+                                    )}
+
 
 
                                 </div>
