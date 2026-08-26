@@ -50,3 +50,24 @@ export interface GenerationEntry {
     data: string; // Base64 image
     timestamp: number;
 }
+
+/** A saved try-on result ("look") stored in its own IndexedDB store. */
+export interface LookEntry {
+    id: string;
+    userId: string;
+    imageUrl: string; // data URL of the generated result
+    timestamp: number; // epoch ms, used for sorting
+    dateLabel?: string; // human-friendly creation date
+    garmentNames: string[]; // stack snapshot, e.g. ["Base Model", "Denim Jacket"]
+    poseLabel?: string;
+    source: 'auto' | 'manual'; // auto-recorded after generation vs. pinned by the user
+    favorite?: boolean; // hearted by the user; favorites survive trimming preferentially
+}
+
+export interface LookPage {
+    items: LookEntry[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+}

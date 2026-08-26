@@ -1,16 +1,23 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
-*/
+ */
 import React from 'react';
 
-const Spinner: React.FC = () => {
+interface SpinnerProps {
+  sizeClass?: string;
+  label?: string;
+}
+
+const Spinner: React.FC<SpinnerProps> = ({ sizeClass = 'h-8 w-8', label = 'Loading' }) => {
   return (
     <svg
-      className="animate-spin h-10 w-10 text-gray-700"
+      className={`animate-spin ${sizeClass} text-gray-700 dark:text-gray-200`}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
+      role="status"
+      aria-label={label}
     >
       <circle
         className="opacity-25"

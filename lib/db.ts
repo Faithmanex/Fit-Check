@@ -3,13 +3,20 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import { User, SavedOutfit, GenerationEntry } from '../types';
+import { User, SavedOutfit, GenerationEntry, LookEntry, LookPage, WardrobeItem } from '../types';
 
 const DB_NAME = 'FitCheckDB';
-const DB_VERSION = 3; // Incremented for Generations store
+const DB_VERSION = 4; // Incremented for Looks history + persisted wardrobes
 const STORE_USERS = 'users';
 const STORE_SESSION = 'session';
 const STORE_GENERATIONS = 'generations';
+const STORE_LOOKS = 'looks';
+const STORE_WARDROBES = 'wardrobes';
+
+/** Maximum number of looks retained per user (oldest trimmed first). */
+export const MAX_LOOKS_PER_USER = 60;
+/** Maximum number of custom wardrobe items persisted per user. */
+export const MAX_WARDROBE_ITEMS = 60;
 
 // Singleton DB connection promise to prevent opening/closing heavily
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -42,6 +49,17 @@ const openDB = (): Promise<IDBDatabase> => {
             // New store for AI result caching
             if (!db.objectStoreNames.contains(STORE_GENERATIONS)) {
                 db.createObjectStore(STORE_GENERATIONS, { keyPath: 'key' });
+            }
+
+            // New store for the "My Looks" generation history
+            if (!db.objectStoreNames.contains(STORE_LOOKS)) {
+                const looks = db.createObjectStore(STORE_LOOKS, { keyPath: 'id' });
+                looks.createIndex('by_user', 'userId', { unique: false });
+            }
+
+            // New store for persisted per-user wardrobes (custom uploads)
+            if (!db.objectStoreNames.contains(STORE_WARDROBES)) {
+                db.createObjectStore(STORE_WARDROBES);
             }
         };
     });
@@ -282,6 +300,194 @@ export const db = {
           store.put({ key, data, timestamp: Date.now() });
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => resolve(); // Fail gracefully
+      });
+  },
+
+  // --- My Looks history ---
+
+  /** Records a look and trims the per-user history to MAX_LOOKS_PER_USER. */
+  saveLook: async (userId: string, look: Omit<LookEntry, 'id' | 'userId'> & { id?: string }): Promise<LookEntry | null> => {
+      const dbInstance = await openDB();
+      return new Promise((resolve) => {
+          const entry: LookEntry = {
+              id: look.id ?? `look_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+              userId,
+              imageUrl: look.imageUrl,
+              timestamp: look.timestamp ?? Date.now(),
+              dateLabel: look.dateLabel,
+              garmentNames: look.garmentNames?.length ? look.garmentNames : ['Base Model'],
+              poseLabel: look.poseLabel,
+              source: look.source ?? 'auto',
+              favorite: look.favorite ?? false,
+          };
+          const transaction = dbInstance.transaction(STORE_LOOKS, 'readwrite');
+          const store = transaction.objectStore(STORE_LOOKS);
+          store.put(entry);
+
+          // Trim oldest beyond the cap (single-user scope keeps this simple).
+          // Favorited looks are trimmed last so a full history never evicts them first.
+          const index = store.index('by_user');
+          const cursorReq = index.openCursor(IDBKeyRange.only(userId));
+          const all: LookEntry[] = [];
+          cursorReq.onsuccess = () => {
+              const cursor = cursorReq.result;
+              if (cursor) {
+                  all.push(cursor.value as LookEntry);
+                  cursor.continue();
+              }
+          };
+          transaction.oncomplete = () => {
+              all.sort((a, b) => b.timestamp - a.timestamp);
+              if (all.length > MAX_LOOKS_PER_USER) {
+                  const overflow = all.slice(MAX_LOOKS_PER_USER);
+                  const stale = [
+                      ...overflow.filter((l) => !l.favorite),
+                      ...overflow.filter((l) => l.favorite),
+                  ].slice(0, all.length - MAX_LOOKS_PER_USER);
+                  const tx = dbInstance.transaction(STORE_LOOKS, 'readwrite');
+                  const trimStore = tx.objectStore(STORE_LOOKS);
+                  for (const item of stale) {
+                      trimStore.delete(item.id);
+                  }
+                  tx.oncomplete = () => resolve(entry);
+                  tx.onerror = () => resolve(entry); // Trim failure is non-fatal
+              } else {
+                  resolve(entry);
+              }
+          };
+          transaction.onerror = () => resolve(null); // Fail gracefully
+      });
+  },
+
+  /** Offset-paginated look history for a user, newest first. */
+  getLooksPage: async (userId: string, page = 1, pageSize = 12, favoritesOnly = false): Promise<LookPage> => {
+      const empty: LookPage = { items: [], total: 0, page: 1, pageSize, totalPages: 1 };
+      try {
+          const dbInstance = await openDB();
+          return await new Promise<LookPage>((resolve) => {
+              const transaction = dbInstance.transaction(STORE_LOOKS, 'readonly');
+              const request = transaction.objectStore(STORE_LOOKS).getAll();
+              request.onsuccess = () => {
+                  const mine = (request.result as LookEntry[])
+                      .filter((look) => look.userId === userId && (!favoritesOnly || look.favorite === true))
+                      .sort((a, b) => b.timestamp - a.timestamp);
+                  const totalPages = Math.max(1, Math.ceil(mine.length / pageSize));
+                  const safePage = Math.min(Math.max(1, page), totalPages);
+                  const start = (safePage - 1) * pageSize;
+                  resolve({
+                      items: mine.slice(start, start + pageSize),
+                      total: mine.length,
+                      page: safePage,
+                      pageSize,
+                      totalPages,
+                  });
+              };
+              request.onerror = () => resolve(empty);
+          });
+      } catch {
+          return empty;
+      }
+  },
+
+  getLookCount: async (userId: string): Promise<number> => {
+      try {
+          const dbInstance = await openDB();
+          return await new Promise<number>((resolve) => {
+              const transaction = dbInstance.transaction(STORE_LOOKS, 'readonly');
+              const request = transaction.objectStore(STORE_LOOKS).getAll();
+              request.onsuccess = () => {
+                  resolve((request.result as LookEntry[]).filter((l) => l.userId === userId).length);
+              };
+              request.onerror = () => resolve(0);
+          });
+      } catch {
+          return 0;
+      }
+  },
+
+  /** Number of favorited looks for a user. */
+  getFavoriteCount: async (userId: string): Promise<number> => {
+      try {
+          const dbInstance = await openDB();
+          return await new Promise<number>((resolve) => {
+              const transaction = dbInstance.transaction(STORE_LOOKS, 'readonly');
+              const request = transaction.objectStore(STORE_LOOKS).getAll();
+              request.onsuccess = () => {
+                  resolve((request.result as LookEntry[]).filter((l) => l.userId === userId && l.favorite === true).length);
+              };
+              request.onerror = () => resolve(0);
+          });
+      } catch {
+          return 0;
+      }
+  },
+
+  /** Toggles the heart on a look; returns the updated entry or null if not found/owned. */
+  setLookFavorite: async (userId: string, lookId: string, favorite: boolean): Promise<LookEntry | null> => {
+      try {
+          const dbInstance = await openDB();
+          return await new Promise<LookEntry | null>((resolve) => {
+              const transaction = dbInstance.transaction(STORE_LOOKS, 'readwrite');
+              const store = transaction.objectStore(STORE_LOOKS);
+              const req = store.get(lookId);
+              req.onsuccess = () => {
+                  const look = req.result as LookEntry | undefined;
+                  if (!look || look.userId !== userId) {
+                      resolve(null);
+                      return;
+                  }
+                  const updated: LookEntry = { ...look, favorite };
+                  store.put(updated);
+                  resolve(updated);
+              };
+              req.onerror = () => resolve(null);
+          });
+      } catch {
+          return null;
+      }
+  },
+
+  deleteLook: async (userId: string, lookId: string): Promise<void> => {
+      const dbInstance = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = dbInstance.transaction(STORE_LOOKS, 'readwrite');
+          const store = transaction.objectStore(STORE_LOOKS);
+          const req = store.get(lookId);
+          req.onsuccess = () => {
+              const look = req.result as LookEntry | undefined;
+              if (look && look.userId === userId) {
+                  store.delete(lookId);
+              }
+          };
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+      });
+  },
+
+  // --- Persisted wardrobes ---
+
+  getWardrobe: async (userId: string): Promise<WardrobeItem[]> => {
+      try {
+          const dbInstance = await openDB();
+          return await new Promise<WardrobeItem[]>((resolve) => {
+              const transaction = dbInstance.transaction(STORE_WARDROBES, 'readonly');
+              const request = transaction.objectStore(STORE_WARDROBES).get(userId);
+              request.onsuccess = () => resolve((request.result as WardrobeItem[]) || []);
+              request.onerror = () => resolve([]);
+          });
+      } catch {
+          return [];
+      }
+  },
+
+  setWardrobe: async (userId: string, items: WardrobeItem[]): Promise<void> => {
+      const capped = items.slice(0, MAX_WARDROBE_ITEMS);
+      const dbInstance = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = dbInstance.transaction(STORE_WARDROBES, 'readwrite');
+          transaction.objectStore(STORE_WARDROBES).put(capped, userId);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
       });
   }
 };
